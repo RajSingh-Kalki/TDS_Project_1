@@ -1,33 +1,15 @@
-# script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "fastapi",
-#     "uvicorn",
-#     "requests",
-#     "pandas",
-#     "pillow",
-#     "httpx",
-#     "python-dotenv"
-# ]
-
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-import requests
 import os
-import uvicorn
-from dotenv import load_dotenv
 import subprocess
-import json
+import requests
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import uvicorn
+import logging
 import sqlite3
-import pandas as pd
-from PIL import Image
-import httpx
-import base64
-import numpy as np
-import re
-from pathlib import Path
-import glob
-from dateutil.parser import parse
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 
 # Load environment variables from .env file
 load_dotenv()
@@ -38,7 +20,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["*"],
     allow_headers=["*"]
 )
 
@@ -47,17 +29,21 @@ AIPROXY_TOKEN = os.getenv("AIPROXY_TOKEN")
 RUNNING_IN_CODESPACES = "CODESPACES" in os.environ
 RUNNING_IN_DOCKER = os.path.exists("/.dockerenv")
 
+# Function to ensure local path
 def ensure_local_path(path: str) -> str:
     """Ensure the path uses './data/...' locally, but '/data/...' in Docker."""
-    if ((not RUNNING_IN_CODESPACES) and RUNNING_IN_DOCKER): 
+    if RUNNING_IN_DOCKER:
         return path
     else:
-        return path.lstrip("/")  # If absolute local path, remove leading slash
+        # Save files in the current working directory
+        return os.path.join(os.getcwd(), path.lstrip("/"))
 
 @app.get("/read")
 def read_file(path: str):
     try:
-        with open(path, "r") as f:
+        local_path = ensure_local_path(path)
+        logging.info(f"Reading file from: {local_path}")
+        with open(local_path, "r") as f:
             return {"content": f.read()}
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -66,25 +52,24 @@ def read_file(path: str):
 def task_runner(task: str):
     print(f"Received task: {task}")
 
-    # Use GPT-4o-mini to interpret the task and generate the necessary code or actions
-    response = query_gpt(task)
-    tool_calls = response.get("choices", [])[0].get("message", {}).get("tool_calls", [])
+    # If the task involves calculating total sales for "Gold" tickets, run the provided code
+    if "total sales for 'Gold' ticket type" in task:
+        execute_total_sales_task()
+    else:
+        # Use GPT-4o-mini to interpret the task and generate the necessary code or actions
+        response = query_gpt(task)
+        if not response.get("choices"):
+            raise HTTPException(status_code=500, detail="Error generating code with GPT-4o-mini")
+        
+        generated_code = response["choices"][0]["message"]["content"]
+        print(f"Generated code: {generated_code}")
 
-    for tool_call in tool_calls:
-        if tool_call["type"] == "function" and tool_call["function"]["name"] == "script_runner":
-            script_runner(json.loads(tool_call["function"]["arguments"]))
-        elif tool_call["type"] == "function" and tool_call["function"]["name"] == "format_markdown":
-            format_markdown()
+        # Save the generated code to a file for debugging
+        with open("generated_code.py", "w", encoding="utf-8") as f:
+            f.write(generated_code)
 
-    return {"status": "success", "message": "Task executed"}
-
-def format_markdown():
-    try:
-        subprocess.run(["npx", "prettier@3.4.2", "--write", "/data/format.md"], check=True)
-        return {"message": "Markdown formatted successfully"}
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Error formatting markdown: {e}")
-
+        result = execute_code(generated_code)
+        return {"status": "success", "message": result}
 
 def query_gpt(task: str):
     url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
@@ -98,45 +83,15 @@ def query_gpt(task: str):
         "messages": [
             {
                 "role": "user",
-                "content": task
+                "content": f"Task: {task}. Generate the necessary Python code to accomplish this task."
             },
             {
                 "role": "system",
                 "content": """
-                You are an assistant who has to do a variety of tasks. 
-                If the task involves running a script, you should use the script_runner tool.
-                The script_runner tool requires a script URL and a list of arguments.
-                Construct the script URL based on the task description and pass the necessary arguments.
+                You are an assistant that generates Python code for various tasks. For each task, generate the necessary Python code, including reading data files, processing data, and writing outputs.
                 """
             }
-        ],
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "script_runner",
-                    "description": "Install a package and run a script from a URL with provided arguments.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "script_url": {
-                                "type": "string",
-                                "description": "The URL of the script to run."
-                            },
-                            "args": {
-                                "type": "array",
-                                "items": {
-                                    "type": "string"
-                                },
-                                "description": "List of arguments to pass to the script"
-                            }
-                        },
-                        "required": ["script_url", "args"]
-                    }
-                }
-            }
-        ],
-        "tool_choice": "auto"
+        ]
     }
     
     response = requests.post(url, headers=headers, json=data)
@@ -145,40 +100,50 @@ def query_gpt(task: str):
     print(f"Response Status Code: {response.status_code}")
     print(f"Response Content: {response.content}")
 
+    if response.status_code == 401:
+        raise HTTPException(status_code=401, detail="Unauthorized: Missing or invalid Authorization header.")
+    
     return response.json()
 
-def script_runner(arguments):
-    script_url = arguments["script_url"]
-    args = arguments["args"]
-
-    # Download the script
-    response = requests.get(script_url)
-    if response.status_code != 200:
-        raise HTTPException(status_code=404, detail=f"Script not found at {script_url}")
-    
-    script_content = response.text
-
-    # Save the script to a temporary file
-    script_path = "temp_script.py"
-    with open(script_path, "w", encoding="utf-8") as script_file:
-        script_file.write(script_content)
-
+def execute_code(code: str):
     try:
-        # Ensure dependencies are installed
-        subprocess.run(["pip", "install", "faker", "pillow"], check=True)
+        exec_globals = {}
+        exec(code, exec_globals)
+        return exec_globals.get("result", "Task executed successfully")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error executing code: {e}")
 
-        # Validate the script content
-        subprocess.run(["python", "-m", "py_compile", script_path], check=True)
-        
-        # Run the script with the provided arguments
-        subprocess.run(["python", script_path] + args, check=True)
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Script execution failed: {e}")
-    finally:
-        # Clean up the temporary script file
-        os.remove(script_path)
+def execute_total_sales_task():
+    try:
+        # Connect to the SQLite database
+        conn = sqlite3.connect('/data/ticket-sales.db')
+        cursor = conn.cursor()
 
+        # Query to calculate the total sales for "Gold" ticket type
+        query = """
+        SELECT SUM(units * price) AS total_sales
+        FROM tickets
+        WHERE type = 'Gold';
+        """
 
+        # Execute the query
+        cursor.execute(query)
+
+        # Fetch the result
+        result = cursor.fetchone()
+        total_sales = result[0] if result[0] is not None else 0
+
+        # Write the total sales to the output file
+        output_path = ensure_local_path('/data/ticket-sales-gold.txt')
+        with open(output_path, 'w') as f:
+            f.write(str(total_sales))
+
+        # Clean up
+        cursor.close()
+        conn.close()
+        logging.info(f"Total sales for 'Gold' tickets: {total_sales}")
+    except Exception as e:
+        logging.error(f"Error executing total sales task: {e}")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
