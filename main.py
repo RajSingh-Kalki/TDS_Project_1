@@ -11,7 +11,10 @@
 #   "python-dotenv",
 #   "httpx",
 #   "markdown",
-#   "duckdb"
+#   "duckdb",
+#   "beautifulsoup4",
+#   "pillow",
+#   "git",
 # ]
 # ///
 
@@ -19,6 +22,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import os
 import re
