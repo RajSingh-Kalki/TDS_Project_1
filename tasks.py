@@ -15,6 +15,8 @@ import markdown
 from scipy.spatial.distance import cosine
 import git
 from dotenv import load_dotenv
+from dateutil import parser
+import numpy as np
 
 load_dotenv()
 
@@ -23,24 +25,40 @@ AIPROXY_TOKEN = os.getenv('AIPROXY_TOKEN')
 
 def A1(email="23f1000422@ds.study.iitm.ac.in"):
     try:
+        # Ensure datagen.py exists in /data
+        datagen_path = "/data/datagen.py"
+        if not os.path.exists(datagen_path):
+            raise FileNotFoundError(f"datagen.py not found at {datagen_path}")
+
         process = subprocess.Popen(
-            ["uv", "run", "https://raw.githubusercontent.com/sanand0/tools-in-data-science-public/tds-2025-01/project-1/datagen.py", email],
+            ["python", "datagen.py", email],
+            cwd="/data",  # Set working directory to /data
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         )
         stdout, stderr = process.communicate()
         if process.returncode != 0:
             raise HTTPException(status_code=500, detail=f"Error: {stderr}")
         return stdout
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=f"Error: {e.stderr}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 # A1()
+
 def A2(prettier_version="prettier@3.4.2", filename="/data/format.md"):
-    command = [r"C:\Program Files\nodejs\npx.cmd", prettier_version, "--write", filename]
     try:
-        subprocess.run(command, check=True)
+        # Ensure prettier is installed and available in PATH
+        command = ["prettier", prettier_version, "--write", filename]  # Call directly
+        process = subprocess.run(command, capture_output=True, text=True, check=True)
         print("Prettier executed successfully.")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Prettier is not installed or not in PATH.")
     except subprocess.CalledProcessError as e:
-        print(f"An error occurred: {e}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e.stderr}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 def A3(filename='/data/dates.txt', targetfile='/data/dates-wednesdays.txt', weekday=2):
     input_file = filename
@@ -49,8 +67,13 @@ def A3(filename='/data/dates.txt', targetfile='/data/dates-wednesdays.txt', week
     weekday_count = 0
 
     with open(input_file, 'r') as file:
-        weekday_count = sum(1 for date in file if parse(date).weekday() == int(weekday)-1)
-
+        for date_str in file:
+            try:
+                date = parser.parse(date_str)
+                if date.weekday() == int(weekday)-1:
+                    weekday_count += 1
+            except ValueError:
+                print(f"Could not parse date: {date_str.strip()}")
 
     with open(output_file, 'w') as file:
         file.write(str(weekday_count))
@@ -124,13 +147,12 @@ def A7(filename='/data/email.txt', output_file='/data/email-sender.txt'):
     with open(output_file, 'w') as file:
         file.write(sender_email)
 
-import base64
-def png_to_base64(image_path):
-    with open(image_path, "rb") as image_file:
-        base64_string = base64.b64encode(image_file.read()).decode('utf-8')
-    return base64_string
 
 #A8
+def png_to_base64(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
 def A8(filename='/data/credit-card.txt', image_path='/data/credit_card.png'):
     try:
         # Construct the request body for the AIProxy call
@@ -170,15 +192,20 @@ def A8(filename='/data/credit-card.txt', image_path='/data/credit_card.png'):
 
         # Extract the credit card number from the response
         result = response.json()
+        print(result)  # Debug: Log the response content
         card_number = result['choices'][0]['message']['content'].strip()
 
         # Validate the card number (16 digits)
         if not re.match(r"^\d{16}$", card_number):
             raise ValueError("Invalid card number format")
 
+        # Ensure the output file exists before writing
+        Path(filename).touch()
+        
         # Write the extracted card number to the output file
         with open(filename, 'w') as file:
             file.write(card_number)
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
@@ -206,17 +233,22 @@ def A9(filename='/data/comments.txt', output_filename='/data/comments-similar.tx
         response.raise_for_status()
 
         embeddings = [emb["embedding"] for emb in response.json()["data"]]
-        embeddings = np.array(embeddings)
+        if embeddings:
+            embeddings = np.array(embeddings)
 
-        # Find the most similar pair
-        similarity = np.dot(embeddings, embeddings.T)
-        np.fill_diagonal(similarity, -np.inf)  # Ignore self-similarity
-        i, j = np.unravel_index(similarity.argmax(), similarity.shape)
+            # Find the most similar pair
+            similarity = np.dot(embeddings, embeddings.T)
+            np.fill_diagonal(similarity, -np.inf)  # Ignore self-similarity
+            i, j = np.unravel_index(similarity.argmax(), similarity.shape)
 
-        # Write the most similar pair to file
-        with open(output_filename, 'w') as f:
-            f.write(comments[i] + '\n')
-            f.write(comments[j] + '\n')
+            # Write the most similar pair to file
+            with open(output_filename, 'w') as f:
+                f.write(comments[i] + '\n')
+                f.write(comments[j] + '\n')
+        else:
+            with open(output_filename, 'w') as f:
+                f.write("No comments found")
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
     
@@ -239,7 +271,6 @@ def A10(filename='/data/ticket-sales.db', output_filename='/data/ticket-sales-go
 
     # Close the database connection
     conn.close()
-
 
 # --- Phase B Tasks (New) ---
 # Security validation

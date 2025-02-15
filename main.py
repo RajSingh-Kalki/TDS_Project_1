@@ -1,20 +1,21 @@
 # /// script
+
 # dependencies = [
-#   "requests",
-#   "fastapi",
-#   "uvicorn",
-#   "python-dateutil",
-#   "pandas",
-#   "db-sqlite3",
-#   "scipy",
-#   "pybase64",
-#   "python-dotenv",
-#   "httpx",
-#   "markdown",
-#   "duckdb",
-#   "beautifulsoup4",
-#   "pillow",
-#   "git",
+#     "requests",
+#     "fastapi",
+#     "uvicorn",
+#     "python-dateutil",
+#     "pandas",
+#     "db-sqlite3",
+#     "scipy",
+#     "pybase64",
+#     "python-dotenv",
+#     "httpx",
+#     "markdown",
+#     "duckdb",
+#     "beautifulsoup4",
+#     "pillow",
+#     "git",
 # ]
 # ///
 
@@ -43,53 +44,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-app = FastAPI()
 load_dotenv()
 
-# @app.get('/ask')
-# def ask(prompt: str):
-#     """ Prompt Gemini to generate a response based on the given prompt. """
-#     gemini_api_key = os.getenv('gemini_api_key')
-#     if not gemini_api_key:
-#         return JSONResponse(content={"error": "GEMINI_API_KEY not set"}, status_code=500)
-
-#     # Read the contents of tasks.py
-#     with open('tasks.py', 'r') as file:
-#         tasks_content = file.read()
-    
-#     # Prepare the request data
-#     data = {
-#         "contents": [{
-#             "parts": [
-#                 {"text": f"Find the task function from here for the below prompt:\n{tasks_content}\n\nPrompt: {prompt}\n\n respond with the function_name and function_parameters with parameters in json format"},
-#             ]
-#         }]
-#     }
-    
-#     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
-#     headers = {
-#         "Content-Type": "application/json"
-#     }
-    
-#     response = requests.post(url, json=data, headers=headers)
-
-#     if response.status_code == 200:
-#         text_reponse = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-#         match = re.search(r'```json\n(.*?)\n```', text_reponse, re.DOTALL)
-#         text_reponse = match.group(1).strip() if match else text_reponse
-#         return json.loads(text_reponse)
-#         # return JSONResponse(content=response.json(), status_code=200)
-#     else:
-#         return JSONResponse(content={"error": "Failed to get response", "details": response.text}, status_code=response.status_code)
-
-@app.get("/ask")
-def ask(prompt: str):
-    result = get_completions(prompt)
-    return result
-
-openai_api_chat  = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions" # for testing
+openai_api_chat = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"  # for testing
 openai_api_key = os.getenv("AIPROXY_TOKEN")
+
+if not openai_api_key:
+    raise ValueError("AIPROXY_TOKEN not found in environment variables or .env file.")
 
 headers = {
     "Authorization": f"Bearer {openai_api_key}",
@@ -99,55 +60,98 @@ headers = {
 function_definitions_llm = [
     {
         "name": "A1",
-        "description": "Run a Python script from a given URL, passing an email as the argument.",
+        "description": """
+            Runs the `datagen.py` script to generate data files needed for other tasks. 
+            Specify the email address to use as an argument to the script. 
+            It is crucial to run this function FIRST to create the necessary data files.
+            Make sure the function returns an HTTP 200 response.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
-                # "filename": {"type": "string", "pattern": r"https?://.*\.py"},
-                # "targetfile": {"type": "string", "pattern": r".*/(.*\.py)"},
-                "email": {"type": "string", "pattern": r"[\w\.-]+@[\w\.-]+\.\w+"}
+                "email": {
+                    "type": "string",
+                    "pattern": r"[\w\.-]+@[\w\.-]+\.\w+",
+                    "description": "The email address to pass as an argument to `datagen.py`. Do not change this."
+                }
             },
-            "required": ["filename", "targetfile", "email"]
+            "required": ["email"]
         }
     },
     {
         "name": "A2",
-        "description": "Format a markdown file using a specified version of Prettier.",
+        "description": """
+            Formats a Markdown file using `prettier`. 
+            Make sure to provide the correct `prettier_version` and `filename`. 
+            This function modifies the file in-place. The goal of this file is to format the file.
+            Make sure the function returns an HTTP 200 response.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
-                "prettier_version": {"type": "string", "pattern": r"prettier@\d+\.\d+\.\d+"},
-                "filename": {"type": "string", "pattern": r".*/(.*\.md)"}
+                "prettier_version": {
+                    "type": "string",
+                    "pattern": r"prettier@\d+\.\d+\.\d+",
+                    "description": "The version of prettier to use (e.g., `prettier@3.4.2`). Do not make any mistake when using this function"
+                },
+                "filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.md)",
+                    "description": "The path to the Markdown file to format. Be sure that path is well-formed and valid."
+                }
             },
-            "required": ["prettier_version", "filename"]
+            "required": ["plaintext", "filename"]
         }
     },
     {
         "name": "A3",
-        "description": "Count the number of occurrences of a specific weekday in a date file.",
+        "description": """
+            Counts the number of occurrences of a specific weekday in a date file. 
+            The `filename` should be a text file with dates, one date per line. 
+            Dates may be in various formats. Use the `dateutil` library to parse the dates. 
+            The `weekday` parameter should be the target weekday (e.g., Monday, Tuesday).
+        """,
         "parameters": {
             "type": "object",
             "properties": {
-                "filename": {"type": "string", "pattern": r"/data/.*dates.*\.txt"},
-                "targetfile": {"type": "string", "pattern": r"/data/.*/(.*\.txt)"},
-                "weekday": {"type": "integer", "pattern": r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"}
+                "filename": {
+                    "type": "string",
+                    "pattern": r"/data/.*dates.*\.txt",
+                    "description": "Path to the dates file. Dates may be in various formats. All file should start with the data tag. The filename file should also end with the file tag .txt"
+                },
+                "targetfile": {
+                    "type": "string",
+                    "pattern": r"/data/.*/(.*\.txt)",
+                    "description": "Path to the file where the count will be written.  All file should start with the data tag.The targetfile should also end with the file tag .txt"
+                },
+                "weekday": {
+                    "type": "integer",
+                    "pattern": r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)",
+                    "description": "The target weekday to count. Do not deviate"
+                }
             },
             "required": ["filename", "targetfile", "weekday"]
         }
     },
     {
         "name": "A4",
-        "description": "Sort a JSON contacts file and save the sorted version to a target file.",
+        "description": """
+            Sorts a JSON contacts file by `last_name` and then `first_name`. 
+            The `filename` should be a JSON file containing an array of contact objects. 
+            The sorted data is saved to the `targetfile`. The name of the file must end with the .json tag.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.json)",
+                    "description": "Path to the JSON contacts file.Make sure you include .json"
                 },
                 "targetfile": {
                     "type": "string",
                     "pattern": r".*/(.*\.json)",
+                    "description": "Path to save the sorted JSON data.Make sure you include .json"
                 }
             },
             "required": ["filename", "targetfile"]
@@ -155,24 +159,30 @@ function_definitions_llm = [
     },
     {
         "name": "A5",
-        "description": "Retrieve the most recent log files from a directory and save their content to an output file.",
+        "description": """
+            Retrieves the first line of the N most recent `.log` files from a directory and saves them to an output file.
+            Specify `log_dir_path`, `output_file_path`, and `num_files`. The `num_files` is the most recent files that the bot should be taking from.Make sure that all files are saved into a txt output file.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "log_dir_path": {
                     "type": "string",
                     "pattern": r".*/logs",
-                    "default": "/data/logs"
+                    "default": "/data/logs",
+                    "description": "Path to the directory containing the log files. Please ensure that the path log_dir_path, is the correct file, and ends with the log tag."
                 },
                 "output_file_path": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/logs-recent.txt"
+                    "default": "/data/logs-recent.txt",
+                    "description": "Path to save the combined log entries.Make sure you include .txt"
                 },
                 "num_files": {
                     "type": "integer",
                     "minimum": 1,
-                    "default": 10
+                    "default": 10,
+                    "description": "Number of recent log files to process. This is an integer."
                 }
             },
             "required": ["log_dir_path", "output_file_path", "num_files"]
@@ -180,19 +190,24 @@ function_definitions_llm = [
     },
     {
         "name": "A6",
-        "description": "Generate an index of documents from a directory and save it as a JSON file.",
+        "description": """
+            Generates an index of Markdown files from a directory and saves it as a JSON file.
+            The index maps each filename (without the `/data/docs/` prefix) to its first H1 heading.Be sure that doc and output are .json as well.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "doc_dir_path": {
                     "type": "string",
                     "pattern": r".*/docs",
-                    "default": "/data/docs"
+                    "default": "/data/docs",
+                    "description": "Path to the directory containing the Markdown files. Make sure you include .md"
                 },
                 "output_file_path": {
                     "type": "string",
                     "pattern": r".*/(.*\.json)",
-                    "default": "/data/docs/index.json"
+                    "default": "/data/docs/index.json",
+                    "description": "Path to save the JSON index file.Make sure you include .json"
                 }
             },
             "required": ["doc_dir_path", "output_file_path"]
@@ -200,19 +215,24 @@ function_definitions_llm = [
     },
     {
         "name": "A7",
-        "description": "Extract the sender's email address from a text file and save it to an output file.",
+        "description": """
+            Extracts the sender's email address from a text file and saves it to an output file.
+            The `filename` should be a text file containing an email message.Make sure that all files are saved into a txt output file.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/email.txt"
+                    "default": "/data/email.txt",
+                    "description": "Path to the text file containing the email message. Be sure to include.txt"
                 },
                 "output_file": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/email-sender.txt"
+                    "default": "/data/email-sender.txt",
+                    "description": "Path to save the extracted email address. Be sure to include.txt"
                 }
             },
             "required": ["filename", "output_file"]
@@ -220,19 +240,25 @@ function_definitions_llm = [
     },
     {
         "name": "A8",
-        "description": "Generate an image representation of credit card details from a text file.",
+        "description": """
+            Extracts the credit card number from an image, validates it, and writes it to a file.
+            The `image_path` should be a path to the image with the credit card number. The output tag is credit_card
+            This function requires the AIPROXY_TOKEN to be set.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/credit-card.txt"
+                    "default": "/data/credit_card.txt",
+                    "description": "Path to save the extracted credit card number. Must be credit_card"
                 },
                 "image_path": {
                     "type": "string",
                     "pattern": r".*/(.*\.png)",
-                    "default": "/data/credit-card.png"
+                    "default": "/data/credit_card.png",
+                    "description": "Path to the image containing the credit card number. The filename is credit_card"
                 }
             },
             "required": ["filename", "image_path"]
@@ -240,19 +266,24 @@ function_definitions_llm = [
     },
     {
         "name": "A9",
-        "description": "Find similar comments from a text file and save them to an output file.",
+        "description": """
+            Finds the most similar pair of comments from a text file using embeddings and saves them to an output file.
+            This function requires the AIPROXY_TOKEN to be set.The name must be comment.
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/comments.txt"
+                    "default": "/data/comments.txt",
+                    "description": "Path to the text file containing the comments. Must be comments"
                 },
                 "output_filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/comments-similar.txt"
+                    "default": "/data/comments-similar.txt",
+                    "description": "Path to save the most similar pair of comments. Must be comment similar"
                 }
             },
             "required": ["filename", "output_filename"]
@@ -260,41 +291,33 @@ function_definitions_llm = [
     },
     {
         "name": "A10",
-        "description": "Identify high-value (gold) ticket sales from a database and save them to a text file.",
+        "description": """
+            Identifies high-value (gold) ticket sales from a database and saves the total sales to a text file.
+            The `filename` should be a path to a SQLite database file with a `tickets` table. the name of the file must be ticket
+            Specify the SQL `query` to retrieve the total sales for the "Gold" ticket type.The name must be ticket
+        """,
         "parameters": {
             "type": "object",
             "properties": {
                 "filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.db)",
-                    "default": "/data/ticket-sales.db"
+                    "default": "/data/ticket-sales.db",
+                    "description": "Path to the SQLite database file. The name of the file must be ticket"
                 },
                 "output_filename": {
                     "type": "string",
                     "pattern": r".*/(.*\.txt)",
-                    "default": "/data/ticket-sales-gold.txt"
+                    "default": "/data/ticket-sales-gold.txt",
+                    "description": "Path to save the total gold ticket sales. The name of the file must be ticket"
                 },
                 "query": {
                     "type": "string",
-                    "pattern": "SELECT SUM(units * price) FROM tickets WHERE type = 'Gold'"
+                    "pattern": "SELECT SUM(units * price) FROM tickets WHERE type = 'Gold'",
+                    "description": "SQL query to retrieve total gold ticket sales. Leave this as the same."
                 }
             },
             "required": ["filename", "output_filename", "query"]
-        }
-    },
-    {
-        "name": "B12",
-        "description": "Check if filepath starts with /data",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "filepath": {
-                    "type": "string",
-                    "pattern": r"^/data/.*",
-                    # "description": "Filepath must start with /data to ensure secure access."
-                }
-            },
-            "required": ["filepath"]
         }
     },
     {
@@ -411,7 +434,6 @@ function_definitions_llm = [
             "required": ["md_path", "output_path"]
         }
     }
-
 ]
 
 def get_completions(prompt: str):
@@ -438,7 +460,6 @@ def get_completions(prompt: str):
     # return response.json()
     print(response.json()["choices"][0]["message"]["tool_calls"][0]["function"])
     return response.json()["choices"][0]["message"]["tool_calls"][0]["function"]
-
 
 # Placeholder for task execution
 @app.post("/run")
@@ -473,12 +494,7 @@ async def run_task(task: str):
             A9(**json.loads(arguments)) 
         if "A10"== task_code:
             A10(**json.loads(arguments)) 
-            
 
-        if "B1"== task_code:
-            B1(**json.loads(arguments)) 
-        if "B2"== task_code:
-            B2(**json.loads(arguments)) 
         if "B3" == task_code:
             B3(**json.loads(arguments))
         if "B5" == task_code:
