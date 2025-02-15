@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+httpx
+python-dotenv
+sqlite3
+pandas
+scipy
+pybase64
+pillow
+python-dateutil
+beautifulsoup4
+markdown
+gitpython

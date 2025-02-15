@@ -1,18 +1,33 @@
-import os
-import subprocess
-import requests
-from fastapi import FastAPI, HTTPException
+# /// script
+# dependencies = [
+#   "requests",
+#   "fastapi",
+#   "uvicorn",
+#   "python-dateutil",
+#   "pandas",
+#   "db-sqlite3",
+#   "scipy",
+#   "pybase64",
+#   "python-dotenv",
+#   "httpx",
+#   "markdown",
+#   "duckdb"
+# ]
+# ///
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import requests
 from dotenv import load_dotenv
-import uvicorn
-import logging
-import sqlite3
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-
-# Load environment variables from .env file
-load_dotenv()
+import os
+import re
+import httpx
+import json
+from tasks import (
+    A1, A2, A3, A4, A5, A6, A7, A8, A9, A10,
+    B3, B4, B5, B6, B7, B8, B9, B10
+)
 
 app = FastAPI()
 
@@ -20,130 +35,471 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
 
-AIPROXY_TOKEN = os.getenv("AIPROXY_TOKEN")
 
-RUNNING_IN_CODESPACES = "CODESPACES" in os.environ
-RUNNING_IN_DOCKER = os.path.exists("/.dockerenv")
+app = FastAPI()
+load_dotenv()
 
-# Function to ensure local path
-def ensure_local_path(path: str) -> str:
-    """Ensure the path uses './data/...' locally, but '/data/...' in Docker."""
-    if RUNNING_IN_DOCKER:
-        return path
-    else:
-        # Save files in the current working directory
-        return os.path.join(os.getcwd(), path.lstrip("/"))
+# @app.get('/ask')
+# def ask(prompt: str):
+#     """ Prompt Gemini to generate a response based on the given prompt. """
+#     gemini_api_key = os.getenv('gemini_api_key')
+#     if not gemini_api_key:
+#         return JSONResponse(content={"error": "GEMINI_API_KEY not set"}, status_code=500)
 
-@app.get("/read")
-def read_file(path: str):
-    try:
-        local_path = ensure_local_path(path)
-        logging.info(f"Reading file from: {local_path}")
-        with open(local_path, "r") as f:
-            return {"content": f.read()}
-    except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-@app.post("/run")
-def task_runner(task: str):
-    print(f"Received task: {task}")
-
-    # If the task involves calculating total sales for "Gold" tickets, run the provided code
-    if "total sales for 'Gold' ticket type" in task:
-        execute_total_sales_task()
-    else:
-        # Use GPT-4o-mini to interpret the task and generate the necessary code or actions
-        response = query_gpt(task)
-        if not response.get("choices"):
-            raise HTTPException(status_code=500, detail="Error generating code with GPT-4o-mini")
-        
-        generated_code = response["choices"][0]["message"]["content"]
-        print(f"Generated code: {generated_code}")
-
-        # Save the generated code to a file for debugging
-        with open("generated_code.py", "w", encoding="utf-8") as f:
-            f.write(generated_code)
-
-        result = execute_code(generated_code)
-        return {"status": "success", "message": result}
-
-def query_gpt(task: str):
-    url = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {AIPROXY_TOKEN}"
-    }
+#     # Read the contents of tasks.py
+#     with open('tasks.py', 'r') as file:
+#         tasks_content = file.read()
     
-    data = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {
-                "role": "user",
-                "content": f"Task: {task}. Generate the necessary Python code to accomplish this task."
+#     # Prepare the request data
+#     data = {
+#         "contents": [{
+#             "parts": [
+#                 {"text": f"Find the task function from here for the below prompt:\n{tasks_content}\n\nPrompt: {prompt}\n\n respond with the function_name and function_parameters with parameters in json format"},
+#             ]
+#         }]
+#     }
+    
+#     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_api_key}"
+#     headers = {
+#         "Content-Type": "application/json"
+#     }
+    
+#     response = requests.post(url, json=data, headers=headers)
+
+#     if response.status_code == 200:
+#         text_reponse = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+#         match = re.search(r'```json\n(.*?)\n```', text_reponse, re.DOTALL)
+#         text_reponse = match.group(1).strip() if match else text_reponse
+#         return json.loads(text_reponse)
+#         # return JSONResponse(content=response.json(), status_code=200)
+#     else:
+#         return JSONResponse(content={"error": "Failed to get response", "details": response.text}, status_code=response.status_code)
+
+@app.get("/ask")
+def ask(prompt: str):
+    result = get_completions(prompt)
+    return result
+
+openai_api_chat  = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions" # for testing
+openai_api_key = os.getenv("AIPROXY_TOKEN")
+
+headers = {
+    "Authorization": f"Bearer {openai_api_key}",
+    "Content-Type": "application/json",
+}
+
+function_definitions_llm = [
+    {
+        "name": "A1",
+        "description": "Run a Python script from a given URL, passing an email as the argument.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                # "filename": {"type": "string", "pattern": r"https?://.*\.py"},
+                # "targetfile": {"type": "string", "pattern": r".*/(.*\.py)"},
+                "email": {"type": "string", "pattern": r"[\w\.-]+@[\w\.-]+\.\w+"}
             },
-            {
-                "role": "system",
-                "content": """
-                You are an assistant that generates Python code for various tasks. For each task, generate the necessary Python code, including reading data files, processing data, and writing outputs.
-                """
-            }
-        ]
+            "required": ["filename", "targetfile", "email"]
+        }
+    },
+    {
+        "name": "A2",
+        "description": "Format a markdown file using a specified version of Prettier.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prettier_version": {"type": "string", "pattern": r"prettier@\d+\.\d+\.\d+"},
+                "filename": {"type": "string", "pattern": r".*/(.*\.md)"}
+            },
+            "required": ["prettier_version", "filename"]
+        }
+    },
+    {
+        "name": "A3",
+        "description": "Count the number of occurrences of a specific weekday in a date file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "pattern": r"/data/.*dates.*\.txt"},
+                "targetfile": {"type": "string", "pattern": r"/data/.*/(.*\.txt)"},
+                "weekday": {"type": "integer", "pattern": r"(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)"}
+            },
+            "required": ["filename", "targetfile", "weekday"]
+        }
+    },
+    {
+        "name": "A4",
+        "description": "Sort a JSON contacts file and save the sorted version to a target file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.json)",
+                },
+                "targetfile": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.json)",
+                }
+            },
+            "required": ["filename", "targetfile"]
+        }
+    },
+    {
+        "name": "A5",
+        "description": "Retrieve the most recent log files from a directory and save their content to an output file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "log_dir_path": {
+                    "type": "string",
+                    "pattern": r".*/logs",
+                    "default": "/data/logs"
+                },
+                "output_file_path": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/logs-recent.txt"
+                },
+                "num_files": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 10
+                }
+            },
+            "required": ["log_dir_path", "output_file_path", "num_files"]
+        }
+    },
+    {
+        "name": "A6",
+        "description": "Generate an index of documents from a directory and save it as a JSON file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "doc_dir_path": {
+                    "type": "string",
+                    "pattern": r".*/docs",
+                    "default": "/data/docs"
+                },
+                "output_file_path": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.json)",
+                    "default": "/data/docs/index.json"
+                }
+            },
+            "required": ["doc_dir_path", "output_file_path"]
+        }
+    },
+    {
+        "name": "A7",
+        "description": "Extract the sender's email address from a text file and save it to an output file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/email.txt"
+                },
+                "output_file": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/email-sender.txt"
+                }
+            },
+            "required": ["filename", "output_file"]
+        }
+    },
+    {
+        "name": "A8",
+        "description": "Generate an image representation of credit card details from a text file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/credit-card.txt"
+                },
+                "image_path": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.png)",
+                    "default": "/data/credit-card.png"
+                }
+            },
+            "required": ["filename", "image_path"]
+        }
+    },
+    {
+        "name": "A9",
+        "description": "Find similar comments from a text file and save them to an output file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/comments.txt"
+                },
+                "output_filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/comments-similar.txt"
+                }
+            },
+            "required": ["filename", "output_filename"]
+        }
+    },
+    {
+        "name": "A10",
+        "description": "Identify high-value (gold) ticket sales from a database and save them to a text file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.db)",
+                    "default": "/data/ticket-sales.db"
+                },
+                "output_filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "default": "/data/ticket-sales-gold.txt"
+                },
+                "query": {
+                    "type": "string",
+                    "pattern": "SELECT SUM(units * price) FROM tickets WHERE type = 'Gold'"
+                }
+            },
+            "required": ["filename", "output_filename", "query"]
+        }
+    },
+    {
+        "name": "B12",
+        "description": "Check if filepath starts with /data",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filepath": {
+                    "type": "string",
+                    "pattern": r"^/data/.*",
+                    # "description": "Filepath must start with /data to ensure secure access."
+                }
+            },
+            "required": ["filepath"]
+        }
+    },
+    {
+        "name": "B3",
+        "description": "Download content from a URL and save it to the specified path.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "pattern": r"https?://.*",
+                    "description": "URL to download content from."
+                },
+                "save_path": {
+                    "type": "string",
+                    "pattern": r".*/.*",
+                    "description": "Path to save the downloaded content."
+                }
+            },
+            "required": ["url", "save_path"]
+        }
+    },
+    {
+        "name": "B5",
+        "description": "Execute a SQL query on a specified database file and save the result to an output file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "db_path": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.db)",
+                    "description": "Path to the SQLite database file."
+                },
+                "query": {
+                    "type": "string",
+                    "description": "SQL query to be executed on the database."
+                },
+                "output_filename": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.txt)",
+                    "description": "Path to the file where the query result will be saved."
+                }
+            },
+            "required": ["db_path", "query", "output_filename"]
+        }
+    },
+    {
+        "name": "B6",
+        "description": "Fetch content from a URL and save it to the specified output file.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "pattern": r"https?://.*",
+                    "description": "URL to fetch content from."
+                },
+                "output_filename": {
+                    "type": "string",
+                    "pattern": r".*/.*",
+                    "description": "Path to the file where the content will be saved."
+                }
+            },
+            "required": ["url", "output_filename"]
+        }
+    },
+    {
+        "name": "B7",
+        "description": "Process an image by optionally resizing it and saving the result to an output path.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "image_path": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.(jpg|jpeg|png|gif|bmp))",
+                    "description": "Path to the input image file."
+                },
+                "output_path": {
+                    "type": "string",
+                    "pattern": r".*/.*",
+                    "description": "Path to save the processed image."
+                },
+                "resize": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Optional. Resize dimensions as [width, height]."
+                }
+            },
+            "required": ["image_path", "output_path"]
+        }
+    },
+    {
+        "name": "B9",
+        "description": "Convert a Markdown file to another format and save the result to the specified output path.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "md_path": {
+                    "type": "string",
+                    "pattern": r".*/(.*\.md)",
+                    "description": "Path to the Markdown file to be converted."
+                },
+                "output_path": {
+                    "type": "string",
+                    "pattern": r".*/.*",
+                    "description": "Path where the converted file will be saved."
+                }
+            },
+            "required": ["md_path", "output_path"]
+        }
     }
-    
-    response = requests.post(url, headers=headers, json=data)
-    
-    # Debugging: Print the response status and content
-    print(f"Response Status Code: {response.status_code}")
-    print(f"Response Content: {response.content}")
 
-    if response.status_code == 401:
-        raise HTTPException(status_code=401, detail="Unauthorized: Missing or invalid Authorization header.")
-    
-    return response.json()
+]
 
-def execute_code(code: str):
+def get_completions(prompt: str):
+    with httpx.Client(timeout=20) as client:
+        response = client.post(
+            f"{openai_api_chat}",
+            headers=headers,
+            json=
+                {
+                    "model": "gpt-4o-mini",
+                    "messages": [
+                                    {"role": "system", "content": "You are a function classifier that extracts structured parameters from queries."},
+                                    {"role": "user", "content": prompt}
+                                ],
+                    "tools": [
+                                {
+                                    "type": "function",
+                                    "function": function
+                                } for function in function_definitions_llm
+                            ],
+                    "tool_choice": "auto"
+                },
+        )
+    # return response.json()
+    print(response.json()["choices"][0]["message"]["tool_calls"][0]["function"])
+    return response.json()["choices"][0]["message"]["tool_calls"][0]["function"]
+
+
+# Placeholder for task execution
+@app.post("/run")
+async def run_task(task: str):
     try:
-        exec_globals = {}
-        exec(code, exec_globals)
-        return exec_globals.get("result", "Task executed successfully")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error executing code: {e}")
+        # Placeholder logic for executing tasks
+        # Replace with actual logic to parse task and execute steps
+        # Example: Execute task and return success or error based on result
+        # llm_response = function_calling(tast), function_name = A1
+        response = get_completions(task)
+        print(response)
+        task_code = response['name']
+        arguments = response['arguments']
 
-def execute_total_sales_task():
+        if "A1"== task_code:
+            A1(**json.loads(arguments))
+        if "A2"== task_code:
+            A2(**json.loads(arguments))  
+        if "A3"== task_code:
+            A3(**json.loads(arguments))  
+        if "A4"== task_code:
+            A4(**json.loads(arguments))
+        if "A5"== task_code:
+            A5(**json.loads(arguments))  
+        if "A6"== task_code:
+            A6(**json.loads(arguments))   
+        if "A7"== task_code:
+            A7(**json.loads(arguments)) 
+        if "A8"== task_code:
+            A8(**json.loads(arguments)) 
+        if "A9"== task_code:
+            A9(**json.loads(arguments)) 
+        if "A10"== task_code:
+            A10(**json.loads(arguments)) 
+            
+
+        if "B1"== task_code:
+            B1(**json.loads(arguments)) 
+        if "B2"== task_code:
+            B2(**json.loads(arguments)) 
+        if "B3" == task_code:
+            B3(**json.loads(arguments))
+        if "B5" == task_code:
+            B5(**json.loads(arguments))  
+        if "B6" == task_code:
+            B6(**json.loads(arguments)) 
+        if "B7" == task_code:
+            B7(**json.loads(arguments))
+        if "B9" == task_code:
+            B9(**json.loads(arguments))               
+        return {"message": f"{task_code} Task '{task}' executed successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# Placeholder for file reading
+@app.get("/read", response_class=PlainTextResponse)
+async def read_file(path: str = Query(..., description="File path to read")):
     try:
-        # Connect to the SQLite database
-        conn = sqlite3.connect('/data/ticket-sales.db')
-        cursor = conn.cursor()
-
-        # Query to calculate the total sales for "Gold" ticket type
-        query = """
-        SELECT SUM(units * price) AS total_sales
-        FROM tickets
-        WHERE type = 'Gold';
-        """
-
-        # Execute the query
-        cursor.execute(query)
-
-        # Fetch the result
-        result = cursor.fetchone()
-        total_sales = result[0] if result[0] is not None else 0
-
-        # Write the total sales to the output file
-        output_path = ensure_local_path('/data/ticket-sales-gold.txt')
-        with open(output_path, 'w') as f:
-            f.write(str(total_sales))
-
-        # Clean up
-        cursor.close()
-        conn.close()
-        logging.info(f"Total sales for 'Gold' tickets: {total_sales}")
+        with open(path, "r") as file:
+            return file.read()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
     except Exception as e:
-        logging.error(f"Error executing total sales task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
