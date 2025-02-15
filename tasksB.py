@@ -2,6 +2,7 @@
 
 # B1 & B2: Security Checks
 import os
+import subprocess
 
 def B12(filepath):
     if filepath.startswith('/data'):
@@ -20,8 +21,7 @@ def B3(url, save_path):
     with open(save_path, 'w') as file:
         file.write(response.text)
 
-B4: Clone a Git Repo and Make a Commit
-def clone_git_repo(repo_url, commit_message):
+def B4(repo_url, commit_message):
     import subprocess
     subprocess.run(["git", "clone", repo_url, "/data/repo"])
     subprocess.run(["git", "-C", "/data/repo", "commit", "-m", commit_message])
@@ -59,7 +59,7 @@ def B7(image_path, output_path, resize=None):
         img = img.resize(resize)
     img.save(output_path)
 
-B8: Audio Transcription
+# B8: Audio Transcription
 def B8(audio_path):
     import openai
     if not B12(audio_path):
@@ -79,15 +79,16 @@ def B9(md_path, output_path):
     with open(output_path, 'w') as file:
         file.write(html)
 
-B10: API Endpoint for CSV Filtering
-from flask import Flask, request, jsonify
-app = Flask(__name__)
-@app.route('/filter_csv', methods=['POST'])
-def filter_csv():
-    import pandas as pd
-    data = request.json
-    csv_path, filter_column, filter_value = data['csv_path'], data['filter_column'], data['filter_value']
-    B12(csv_path)
-    df = pd.read_csv(csv_path)
-    filtered = df[df[filter_column] == filter_value]
-    return jsonify(filtered.to_dict(orient='records'))
+# B10: API Endpoint for CSV Filtering
+def B10():
+    from flask import Flask, request, jsonify
+    app = Flask(__name__)
+    @app.route('/filter_csv', methods=['POST'])
+    def filter_csv():
+        import pandas as pd
+        data = request.json
+        csv_path, filter_column, filter_value = data['csv_path'], data['filter_column'], data['filter_value']
+        B12(csv_path)
+        df = pd.read_csv(csv_path)
+        filtered = df[df[filter_column] == filter_value]
+        return jsonify(filtered.to_dict(orient='records'))

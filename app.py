@@ -19,6 +19,7 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+import subprocess
 from tasksA import *
 from tasksB import *
 import requests
